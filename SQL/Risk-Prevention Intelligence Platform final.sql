@@ -1,0 +1,1036 @@
+-- ============================================================================
+-- Risk & Prevention Intelligence Platform  |  STAR SCHEMA  (FINAL)
+-- Fact table in the middle: Diabetes_Health
+-- 3 dimensions around it:   Country, Healthcare, Demographic_Group (sex + age group)
+-- Grain: country x year x sex x age_group
+--   * record_level = 'Demographic' -> real sex / age_group, demographic measures
+--   * record_level = 'Country'     -> sex = 'All', age_group = 'All', country measures
+-- ============================================================================
+-- 1. DATABASE INITIALIZATION
+-- ============================================================================
+DROP DATABASE IF EXISTS Risk_And_Prevention_Intelligence_Platform;
+
+CREATE DATABASE IF NOT EXISTS Risk_And_Prevention_Intelligence_Platform
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_0900_ai_ci;
+USE Risk_And_Prevention_Intelligence_Platform;
+-- ============================================================================
+-- 2. TABLE CREATION
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS RawData (
+    country_code VARCHAR(10) NULL,
+    country VARCHAR(100) NULL,
+    region VARCHAR(100) NULL,
+    year INT NULL,
+    sex VARCHAR(20) NULL,
+    age_group VARCHAR(30) NULL,
+    population BIGINT NULL,
+    diabetes_patients BIGINT NULL,
+    untreated_patients VARCHAR(50) NULL,
+    obesity_rate_by_sex_pct DECIMAL(10,4) NULL,
+    country_population BIGINT NULL,
+    country_diabetes_deaths VARCHAR(50) NULL,
+    diabetes_rate_age_standardized_pct DECIMAL(10,4) NULL,
+    obesity_rate_pct DECIMAL(10,4) NULL,
+    sugar_starch_pct_of_calories VARCHAR(50) NULL,
+    gdp_per_capita_ppp VARCHAR(50) NULL,
+    income_level VARCHAR(50) NULL,
+    health_spending_total_usd VARCHAR(50) NULL,
+    health_coverage_index VARCHAR(50) NULL,
+    healthcare_level VARCHAR(100) NULL,
+    insulin_imports_usd VARCHAR(50) NULL,
+    insulin_exports_usd VARCHAR(50) NULL
+);
+SET GLOBAL local_infile = 1;
+-- ============================================================================
+-- 3. DATA INGESTION
+-- ============================================================================
+LOAD DATA LOCAL INFILE 'C:/Users/Medo Radwan/Downloads/diabetes_dataset_final(Raw-Data.csv'
+INTO TABLE RawData
+CHARACTER SET utf8mb4
+FIELDS TERMINATED BY ','
+OPTIONALLY ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS
+(
+    @country_code, @country, @region, @year, @sex, @age_group,
+    @population, @diabetes_patients, @untreated_patients, @obesity_rate_by_sex_pct,
+    @country_population, @country_diabetes_deaths, @diabetes_rate_age_standardized_pct,
+    @obesity_rate_pct, @sugar_starch_pct_of_calories, @gdp_per_capita_ppp,
+    @income_level, @health_spending_total_usd, @health_coverage_index,
+    @healthcare_level, @insulin_imports_usd, @insulin_exports_usd
+)
+SET
+    country_code = NULLIF(TRIM(@country_code), ''),
+    country = NULLIF(TRIM(@country), ''),
+    region = NULLIF(TRIM(@region), ''),
+    year = NULLIF(TRIM(@year), ''),
+    sex = NULLIF(TRIM(@sex), ''),
+    age_group = NULLIF(TRIM(@age_group), ''),
+    population = NULLIF(TRIM(@population), ''),
+    diabetes_patients = NULLIF(TRIM(@diabetes_patients), ''),
+    untreated_patients = NULLIF(TRIM(@untreated_patients), ''),
+    obesity_rate_by_sex_pct = NULLIF(TRIM(@obesity_rate_by_sex_pct), ''),
+    country_population = NULLIF(TRIM(@country_population), ''),
+    country_diabetes_deaths = NULLIF(TRIM(@country_diabetes_deaths), ''),
+    diabetes_rate_age_standardized_pct = NULLIF(TRIM(@diabetes_rate_age_standardized_pct), ''),
+    obesity_rate_pct = NULLIF(TRIM(@obesity_rate_pct), ''),
+    sugar_starch_pct_of_calories = NULLIF(TRIM(@sugar_starch_pct_of_calories), ''),
+    gdp_per_capita_ppp = NULLIF(TRIM(@gdp_per_capita_ppp), ''),
+    income_level = NULLIF(TRIM(@income_level), ''),
+    health_spending_total_usd = NULLIF(TRIM(@health_spending_total_usd), ''),
+    health_coverage_index = NULLIF(TRIM(@health_coverage_index), ''),
+    healthcare_level = NULLIF(TRIM(@healthcare_level), ''),
+    insulin_imports_usd = NULLIF(TRIM(@insulin_imports_usd), ''),
+    insulin_exports_usd = NULLIF(TRIM(@insulin_exports_usd), '');
+-- ============================================================================
+-- 4. EXPLORATORY DATA CHECKS
+-- ============================================================================
+-- Count non-null values per column
+SELECT
+    COUNT(*) AS Total_Rows,
+    COUNT(country_code) AS country_code,
+    COUNT(country) AS country,
+    COUNT(region) AS region,
+    COUNT(year) AS year_date,
+    COUNT(sex) AS sex,
+    COUNT(age_group) AS age_group,
+    COUNT(population) AS population,
+    COUNT(diabetes_patients) AS diabetes_patients,
+    COUNT(untreated_patients) AS untreated_patients,
+    COUNT(obesity_rate_by_sex_pct) AS obesity_rate_by_sex_pct,
+    COUNT(country_population) AS country_population,
+    COUNT(country_diabetes_deaths) AS country_diabetes_deaths,
+    COUNT(diabetes_rate_age_standardized_pct) AS diabetes_rate_age_standardized_pct,
+    COUNT(obesity_rate_pct) AS obesity_rate_pct,
+    COUNT(sugar_starch_pct_of_calories) AS sugar_starch_pct_of_calories,
+    COUNT(gdp_per_capita_ppp) AS gdp_per_capita_ppp,
+    COUNT(income_level) AS income_level,
+    COUNT(health_spending_total_usd) AS health_spending_total_usd,
+    COUNT(health_coverage_index) AS health_coverage_index,
+    COUNT(healthcare_level) AS healthcare_level,
+    COUNT(insulin_imports_usd) AS insulin_imports_usd,
+    COUNT(insulin_exports_usd) AS insulin_exports_usd
+FROM RawData;
+
+-- Count missing values
+SELECT
+    SUM(CASE WHEN untreated_patients IS NULL THEN 1 ELSE 0 END) AS missing_untreated_patients,
+    SUM(CASE WHEN country_diabetes_deaths IS NULL THEN 1 ELSE 0 END) AS missing_diabetes_deaths,
+    SUM(CASE WHEN sugar_starch_pct_of_calories IS NULL THEN 1 ELSE 0 END) AS missing_sugar_starch,
+    SUM(CASE WHEN gdp_per_capita_ppp IS NULL THEN 1 ELSE 0 END) AS missing_gdp,
+    SUM(CASE WHEN income_level IS NULL OR income_level = '' THEN 1 ELSE 0 END) AS missing_income_level,
+    SUM(CASE WHEN health_spending_total_usd IS NULL THEN 1 ELSE 0 END) AS missing_health_spending,
+    SUM(CASE WHEN health_coverage_index IS NULL THEN 1 ELSE 0 END) AS missing_health_coverage,
+    SUM(CASE WHEN healthcare_level IS NULL OR healthcare_level = '' THEN 1 ELSE 0 END) AS missing_healthcare_level,
+    SUM(CASE WHEN insulin_imports_usd IS NULL THEN 1 ELSE 0 END) AS missing_insulin_imports,
+    SUM(CASE WHEN insulin_exports_usd IS NULL THEN 1 ELSE 0 END) AS missing_insulin_exports
+FROM RawData;
+
+-- Check descriptive statistics for outliers
+SELECT 'population' AS metric_col, MIN(population) AS min_val, MAX(population) AS max_val, AVG(population) AS avg_val FROM RawData
+UNION ALL
+SELECT 'diabetes_patients', MIN(diabetes_patients), MAX(diabetes_patients), AVG(diabetes_patients) FROM RawData
+UNION ALL
+SELECT 'gdp_per_capita_ppp', MIN(CAST(gdp_per_capita_ppp AS DECIMAL(18,2))), MAX(CAST(gdp_per_capita_ppp AS DECIMAL(18,2))), AVG(CAST(gdp_per_capita_ppp AS DECIMAL(18,2))) FROM RawData
+UNION ALL
+SELECT 'obesity_rate_pct', MIN(obesity_rate_pct), MAX(obesity_rate_pct), AVG(obesity_rate_pct) FROM RawData;
+
+-- Check category distribution
+SELECT income_level, COUNT(*) AS count_rows
+FROM RawData
+GROUP BY income_level
+ORDER BY count_rows DESC;
+
+-- ============================================================================
+-- 5. DATA CLEANING & FEATURE ENGINEERING
+-- ============================================================================
+
+-- Add status flag columns
+ALTER TABLE RawData
+ADD COLUMN untreated_status VARCHAR(20) DEFAULT 'Unknown',
+ADD COLUMN deaths_status VARCHAR(20) DEFAULT 'Unknown',
+ADD COLUMN sugar_status VARCHAR(20) DEFAULT 'Unknown',
+ADD COLUMN gdp_status VARCHAR(20) DEFAULT 'Unknown',
+ADD COLUMN health_spending_status VARCHAR(20) DEFAULT 'Unknown',
+ADD COLUMN health_coverage_status VARCHAR(20) DEFAULT 'Unknown',
+ADD COLUMN insulin_status VARCHAR(20) DEFAULT 'Unknown';
+
+-- Disable safe update mode temporarily
+SET SQL_SAFE_UPDATES = 0;
+
+-- Populate status columns
+UPDATE RawData SET untreated_status = CASE WHEN untreated_patients IS NOT NULL THEN 'Known' ELSE 'Unknown' END;
+UPDATE RawData SET deaths_status = CASE WHEN country_diabetes_deaths IS NOT NULL THEN 'Known' ELSE 'Unknown' END;
+UPDATE RawData SET sugar_status = CASE WHEN sugar_starch_pct_of_calories IS NOT NULL THEN 'Known' ELSE 'Unknown' END;
+UPDATE RawData SET gdp_status = CASE WHEN gdp_per_capita_ppp IS NOT NULL THEN 'Known' ELSE 'Unknown' END;
+UPDATE RawData SET health_spending_status = CASE WHEN health_spending_total_usd IS NOT NULL THEN 'Known' ELSE 'Unknown' END;
+UPDATE RawData SET health_coverage_status = CASE WHEN health_coverage_index IS NOT NULL THEN 'Known' ELSE 'Unknown' END;
+UPDATE RawData SET insulin_status = CASE WHEN insulin_imports_usd IS NOT NULL THEN 'Known' ELSE 'Unknown' END;
+
+-- Handle missing values in categorical columns
+UPDATE RawData SET income_level = 'Unknown' WHERE income_level IS NULL OR TRIM(income_level) = '';
+UPDATE RawData SET healthcare_level = 'Unknown' WHERE healthcare_level IS NULL OR TRIM(healthcare_level) = '';
+
+-- ============================================================================
+-- 6. TYPE CASTING TO NUMERIC
+-- ============================================================================
+ALTER TABLE RawData
+MODIFY untreated_patients BIGINT NULL,
+MODIFY country_diabetes_deaths BIGINT NULL,
+MODIFY sugar_starch_pct_of_calories DECIMAL(10,4) NULL,
+MODIFY gdp_per_capita_ppp DECIMAL(18,2) NULL,
+MODIFY health_spending_total_usd DECIMAL(20,2) NULL,
+MODIFY health_coverage_index DECIMAL(10,4) NULL,
+MODIFY insulin_imports_usd DECIMAL(20,2) NULL,
+MODIFY insulin_exports_usd DECIMAL(20,2) NULL;
+
+-- Re-enable safe update mode
+SET SQL_SAFE_UPDATES = 1;
+
+-- ============================================================================
+-- 7. FINAL VERIFICATION OF RAW DATA
+-- ============================================================================
+SELECT
+    SUM(CASE WHEN untreated_status = 'Known' THEN 1 ELSE 0 END) AS untreated_known,
+    SUM(CASE WHEN untreated_status = 'Unknown' THEN 1 ELSE 0 END) AS untreated_unknown,
+    SUM(CASE WHEN deaths_status = 'Known' THEN 1 ELSE 0 END) AS deaths_known,
+    SUM(CASE WHEN deaths_status = 'Unknown' THEN 1 ELSE 0 END) AS deaths_unknown,
+    SUM(CASE WHEN sugar_status = 'Known' THEN 1 ELSE 0 END) AS sugar_known,
+    SUM(CASE WHEN sugar_status = 'Unknown' THEN 1 ELSE 0 END) AS sugar_unknown,
+    SUM(CASE WHEN gdp_status = 'Known' THEN 1 ELSE 0 END) AS gdp_known,
+    SUM(CASE WHEN gdp_status = 'Unknown' THEN 1 ELSE 0 END) AS gdp_unknown,
+    SUM(CASE WHEN health_spending_status = 'Known' THEN 1 ELSE 0 END) AS health_spending_known,
+    SUM(CASE WHEN health_spending_status = 'Unknown' THEN 1 ELSE 0 END) AS health_spending_unknown,
+    SUM(CASE WHEN health_coverage_status = 'Known' THEN 1 ELSE 0 END) AS health_coverage_known,
+    SUM(CASE WHEN health_coverage_status = 'Unknown' THEN 1 ELSE 0 END) AS health_coverage_unknown,
+    SUM(CASE WHEN insulin_status = 'Known' THEN 1 ELSE 0 END) AS insulin_known,
+    SUM(CASE WHEN insulin_status = 'Unknown' THEN 1 ELSE 0 END) AS insulin_unknown
+FROM RawData;
+
+-- ============================================================================
+-- 8. SANITY CHECKS ON RAW DATA (run BEFORE modeling, all should return 0 rows)
+-- ============================================================================
+
+-- 8.1 Each country_code must have a single country name and region
+SELECT country_code,
+       COUNT(DISTINCT country) AS country_names,
+       COUNT(DISTINCT region)  AS regions
+FROM RawData
+GROUP BY country_code
+HAVING country_names > 1 OR regions > 1;
+
+-- 8.2 Country-level values must be identical for every row of the same country + year
+--     (we collapse them into ONE row per country + year, so they must not conflict)
+SELECT country_code, year
+FROM RawData
+GROUP BY country_code, year
+HAVING COUNT(DISTINCT country_population) > 1
+    OR COUNT(DISTINCT country_diabetes_deaths) > 1
+    OR COUNT(DISTINCT diabetes_rate_age_standardized_pct) > 1
+    OR COUNT(DISTINCT obesity_rate_pct) > 1
+    OR COUNT(DISTINCT sugar_starch_pct_of_calories) > 1
+    OR COUNT(DISTINCT gdp_per_capita_ppp) > 1
+    OR COUNT(DISTINCT health_spending_total_usd) > 1
+    OR COUNT(DISTINCT health_coverage_index) > 1
+    OR COUNT(DISTINCT insulin_imports_usd) > 1
+    OR COUNT(DISTINCT insulin_exports_usd) > 1
+    OR COUNT(DISTINCT income_level) > 1
+    OR COUNT(DISTINCT healthcare_level) > 1;
+
+-- 8.3 Demographic grain must be unique in the raw data
+SELECT country_code, year, sex, age_group, COUNT(*) AS total_rows
+FROM RawData
+GROUP BY country_code, year, sex, age_group
+HAVING COUNT(*) > 1;
+
+-- ============================================================================
+-- 9. DIMENSIONS (3 around the fact: Country, Healthcare, Demographic_Group)
+-- ============================================================================
+
+-- 9.1 Country
+CREATE TABLE Country (
+    country_key INT AUTO_INCREMENT PRIMARY KEY,
+    country_code VARCHAR(10) NOT NULL,
+    country VARCHAR(100) NOT NULL,
+    region VARCHAR(100),
+    UNIQUE (country_code)
+);
+
+INSERT INTO Country (country_code, country, region)
+SELECT DISTINCT country_code, country, region
+FROM RawData;
+
+SELECT * FROM Country;
+
+-- 9.2 Healthcare
+CREATE TABLE Healthcare (
+    healthcare_key INT AUTO_INCREMENT PRIMARY KEY,
+    healthcare_level VARCHAR(100) NOT NULL UNIQUE
+);
+
+INSERT INTO Healthcare (healthcare_level)
+SELECT DISTINCT healthcare_level
+FROM RawData
+WHERE healthcare_level IS NOT NULL;
+
+SELECT * FROM Healthcare;
+
+-- 9.3 Demographic_Group (sex + age group = one demographic segment)
+CREATE TABLE Demographic_Group (
+    demographic_group_key INT AUTO_INCREMENT PRIMARY KEY,
+    sex VARCHAR(20) NOT NULL,
+    age_group VARCHAR(50) NOT NULL,
+    UNIQUE (sex, age_group)
+);
+
+INSERT INTO Demographic_Group (sex, age_group)
+SELECT DISTINCT sex, age_group
+FROM RawData
+WHERE sex IS NOT NULL
+  AND age_group IS NOT NULL;
+
+-- 'All' / 'All' is used by the country-level rows of the fact table
+INSERT INTO Demographic_Group (sex, age_group) VALUES ('All', 'All');
+
+SELECT * FROM Demographic_Group ORDER BY sex, age_group;
+
+-- ============================================================================
+-- 10. THE FACT TABLE: Diabetes_Health (single fact = star schema)
+-- ============================================================================
+
+CREATE TABLE Diabetes_Health (
+    diabetes_health_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+    -- foreign keys to the 3 dimensions
+    country_key           INT NOT NULL,
+    healthcare_key        INT NULL,
+    demographic_group_key INT NOT NULL,
+
+    -- attributes kept inside the fact
+    year_value   INT NOT NULL,
+    income_level VARCHAR(50) NOT NULL DEFAULT 'Unknown',
+    record_level VARCHAR(12) NOT NULL,          -- 'Demographic' or 'Country'
+
+    -- demographic measures
+    population              BIGINT        NULL,   -- people
+    diabetes_patients       BIGINT        NULL,   -- people
+    untreated_patients      BIGINT        NULL,   -- people
+    obesity_rate_by_sex_pct DECIMAL(10,4) NULL,   -- %
+    untreated_status        VARCHAR(20)   NULL,
+
+    -- country measures
+    country_population                 BIGINT         NULL,  -- people
+    country_diabetes_deaths            BIGINT         NULL,  -- deaths
+    diabetes_rate_age_standardized_pct DECIMAL(10,4)  NULL,  -- %
+    obesity_rate_pct                   DECIMAL(10,4)  NULL,  -- %
+    sugar_starch_pct_of_calories       DECIMAL(10,4)  NULL,  -- % of calories
+    gdp_per_capita_ppp                 DECIMAL(18,2)  NULL,  -- USD (PPP)
+    health_spending_total_usd          DECIMAL(20,2)  NULL,  -- USD
+    health_coverage_index              DECIMAL(10,4)  NULL,  -- index
+    insulin_imports_usd                DECIMAL(20,2)  NULL,  -- USD
+    insulin_exports_usd                DECIMAL(20,2)  NULL,  -- USD
+
+    -- data availability flags
+    deaths_status           VARCHAR(20) NULL,
+    sugar_status            VARCHAR(20) NULL,
+    gdp_status              VARCHAR(20) NULL,
+    health_spending_status  VARCHAR(20) NULL,
+    health_coverage_status  VARCHAR(20) NULL,
+    insulin_status          VARCHAR(20) NULL,
+
+    CONSTRAINT fk_diabetes_health_country
+        FOREIGN KEY (country_key) REFERENCES Country(country_key),
+    CONSTRAINT fk_diabetes_health_healthcare
+        FOREIGN KEY (healthcare_key) REFERENCES Healthcare(healthcare_key),
+    CONSTRAINT fk_diabetes_health_demographic_group
+        FOREIGN KEY (demographic_group_key) REFERENCES Demographic_Group(demographic_group_key),
+
+    CONSTRAINT uq_diabetes_health_grain
+        UNIQUE (country_key, year_value, demographic_group_key),
+    CONSTRAINT chk_diabetes_health_record_level
+        CHECK (record_level IN ('Demographic', 'Country')),
+
+    INDEX idx_diabetes_health_level (record_level, year_value)
+);
+
+-- 10.1 Load DEMOGRAPHIC rows (country x year x sex x age_group)
+INSERT INTO Diabetes_Health (
+    country_key, healthcare_key, demographic_group_key, year_value, income_level, record_level,
+    population, diabetes_patients, untreated_patients, obesity_rate_by_sex_pct, untreated_status
+)
+SELECT
+    c.country_key,
+    h.healthcare_key,
+    g.demographic_group_key,
+    r.year,
+    COALESCE(r.income_level, 'Unknown'),
+    'Demographic',
+    r.population,
+    r.diabetes_patients,
+    r.untreated_patients,
+    r.obesity_rate_by_sex_pct,
+    CASE WHEN r.untreated_patients IS NOT NULL THEN 'Known' ELSE 'Unknown' END
+FROM RawData r
+INNER JOIN Country c ON r.country_code = c.country_code
+INNER JOIN Demographic_Group g ON r.sex = g.sex AND r.age_group = g.age_group
+LEFT JOIN Healthcare h ON r.healthcare_level = h.healthcare_level
+WHERE r.year IS NOT NULL;
+
+-- 10.2 Load COUNTRY rows (country x year, sex = 'All', age_group = 'All')
+INSERT INTO Diabetes_Health (
+    country_key, healthcare_key, demographic_group_key, year_value, income_level, record_level,
+    country_population, country_diabetes_deaths,
+    diabetes_rate_age_standardized_pct, obesity_rate_pct, sugar_starch_pct_of_calories,
+    gdp_per_capita_ppp, health_spending_total_usd, health_coverage_index,
+    insulin_imports_usd, insulin_exports_usd,
+    deaths_status, sugar_status, gdp_status,
+    health_spending_status, health_coverage_status, insulin_status
+)
+SELECT
+    c.country_key,
+    MAX(h.healthcare_key),
+    (SELECT demographic_group_key FROM Demographic_Group WHERE sex = 'All' AND age_group = 'All'),
+    r.year,
+    COALESCE(MAX(r.income_level), 'Unknown'),
+    'Country',
+    MAX(r.country_population),
+    MAX(r.country_diabetes_deaths),
+    MAX(r.diabetes_rate_age_standardized_pct),
+    MAX(r.obesity_rate_pct),
+    MAX(r.sugar_starch_pct_of_calories),
+    MAX(r.gdp_per_capita_ppp),
+    MAX(r.health_spending_total_usd),
+    MAX(r.health_coverage_index),
+    MAX(r.insulin_imports_usd),
+    MAX(r.insulin_exports_usd),
+    -- status = 'Known' when the measure has a value (does not depend on the RawData status columns)
+    CASE WHEN MAX(r.country_diabetes_deaths)      IS NOT NULL THEN 'Known' ELSE 'Unknown' END,
+    CASE WHEN MAX(r.sugar_starch_pct_of_calories) IS NOT NULL THEN 'Known' ELSE 'Unknown' END,
+    CASE WHEN MAX(r.gdp_per_capita_ppp)           IS NOT NULL THEN 'Known' ELSE 'Unknown' END,
+    CASE WHEN MAX(r.health_spending_total_usd)    IS NOT NULL THEN 'Known' ELSE 'Unknown' END,
+    CASE WHEN MAX(r.health_coverage_index)        IS NOT NULL THEN 'Known' ELSE 'Unknown' END,
+    CASE WHEN MAX(r.insulin_imports_usd)          IS NOT NULL THEN 'Known' ELSE 'Unknown' END
+FROM RawData r
+INNER JOIN Country c ON r.country_code = c.country_code
+LEFT JOIN Healthcare h ON r.healthcare_level = h.healthcare_level
+WHERE r.year IS NOT NULL
+GROUP BY c.country_key, r.year;
+
+-- ============================================================================
+-- 11. DATA QUALITY CHECKS ON THE NEW MODEL
+-- ============================================================================
+
+-- 11.1 Row counts: fact must equal (demographic rows in raw) + (distinct country-years in raw)
+SELECT record_level, COUNT(*) AS fact_rows
+FROM Diabetes_Health
+GROUP BY record_level;
+
+SELECT
+    (SELECT COUNT(*) FROM RawData
+      WHERE year IS NOT NULL AND sex IS NOT NULL AND age_group IS NOT NULL) AS expected_demographic_rows,
+    (SELECT COUNT(*) FROM (SELECT DISTINCT country_code, year FROM RawData WHERE year IS NOT NULL) x) AS expected_country_rows;
+
+-- 11.2 Totals must match the raw data (both numbers should be equal)
+SELECT
+    (SELECT SUM(diabetes_patients) FROM RawData
+      WHERE year IS NOT NULL AND sex IS NOT NULL AND age_group IS NOT NULL) AS raw_total_patients,
+    (SELECT SUM(diabetes_patients) FROM Diabetes_Health) AS fact_total_patients;
+
+-- 11.3 Missing keys
+SELECT
+    COUNT(*) AS total_rows,
+    SUM(country_key IS NULL)           AS missing_country,
+    SUM(year_value IS NULL)            AS missing_year,
+    SUM(demographic_group_key IS NULL) AS missing_demographic_group
+FROM Diabetes_Health;
+
+-- 11.4 Orphans (should be 0)
+SELECT
+    (SELECT COUNT(*) FROM Diabetes_Health f
+       LEFT JOIN Country d ON f.country_key = d.country_key
+      WHERE d.country_key IS NULL) AS orphan_countries,
+    (SELECT COUNT(*) FROM Diabetes_Health f
+       LEFT JOIN Healthcare d ON f.healthcare_key = d.healthcare_key
+      WHERE f.healthcare_key IS NOT NULL AND d.healthcare_key IS NULL) AS orphan_healthcare,
+    (SELECT COUNT(*) FROM Diabetes_Health f
+       LEFT JOIN Demographic_Group d ON f.demographic_group_key = d.demographic_group_key
+      WHERE d.demographic_group_key IS NULL) AS orphan_demographic_groups;
+
+-- 11.5 Negative numbers
+SELECT COUNT(*) AS negative_records
+FROM Diabetes_Health
+WHERE population < 0 OR diabetes_patients < 0 OR untreated_patients < 0
+   OR obesity_rate_by_sex_pct < 0
+   OR country_population < 0 OR country_diabetes_deaths < 0
+   OR diabetes_rate_age_standardized_pct < 0 OR obesity_rate_pct < 0
+   OR health_coverage_index < 0;
+
+-- 11.6 Logical checks
+SELECT COUNT(*) AS untreated_more_than_patients
+FROM Diabetes_Health
+WHERE untreated_patients > diabetes_patients;
+
+-- 11.7 Percentage validation (nothing above 100)
+SELECT COUNT(*) AS invalid_pct_values
+FROM Diabetes_Health
+WHERE obesity_rate_by_sex_pct > 100
+   OR diabetes_rate_age_standardized_pct > 100
+   OR obesity_rate_pct > 100
+   OR health_coverage_index > 100
+   OR sugar_starch_pct_of_calories > 100;
+
+-- 11.8 Status flags: both 'Known' and 'Unknown' must appear.
+--      If 'Known' is 0 here, the insights that filter on status will return no rows.
+SELECT 'untreated_status' AS flag, untreated_status AS status, COUNT(*) AS rows_count
+FROM Diabetes_Health WHERE record_level = 'Demographic' GROUP BY untreated_status
+UNION ALL
+SELECT 'deaths_status', deaths_status, COUNT(*)
+FROM Diabetes_Health WHERE record_level = 'Country' GROUP BY deaths_status
+UNION ALL
+SELECT 'health_spending_status', health_spending_status, COUNT(*)
+FROM Diabetes_Health WHERE record_level = 'Country' GROUP BY health_spending_status
+UNION ALL
+SELECT 'insulin_status', insulin_status, COUNT(*)
+FROM Diabetes_Health WHERE record_level = 'Country' GROUP BY insulin_status;
+
+-- 11.9 Quick look
+SHOW TABLES;
+SHOW CREATE TABLE Diabetes_Health;
+SELECT * FROM Diabetes_Health LIMIT 10;
+
+-- ============================================================================
+-- 12. INSIGHTS
+-- How to read the numbers (units are written INSIDE the values):
+--   20.33%            = percent
+--   +1.77 pp          = percentage points (the gap between two percentages)
+--   1.2K / 3.4M / 5.6B = thousands / millions / billions  (3.4M = 3,400,000)
+--   $3.4M             = US dollars (same K / M / B)
+--   12.5 per 100K     = per 100,000 population
+--   3.2 per 1,000     = per 1,000 patients
+-- Rule: ALWAYS filter record_level. 'Demographic' for patient counts, 'Country' for country measures.
+-- Country measures are never SUMmed across demographic rows, so there is no double counting.
+-- ============================================================================
+
+DROP FUNCTION IF EXISTS fmt_num;
+CREATE FUNCTION fmt_num(x DECIMAL(38,4)) RETURNS VARCHAR(40) DETERMINISTIC
+RETURN CASE
+         WHEN x IS NULL THEN NULL
+         WHEN ABS(x) >= 1000000000 THEN CONCAT(FORMAT(x / 1000000000, 1), 'B')
+         WHEN ABS(x) >= 1000000    THEN CONCAT(FORMAT(x / 1000000, 1), 'M')
+         WHEN ABS(x) >= 1000       THEN CONCAT(FORMAT(x / 1000, 1), 'K')
+         ELSE FORMAT(x, 0)
+       END;
+
+-- ----------------------------------------------------------------------------
+-- 1) Insight 1: How many people have diabetes worldwide, year by year (1990 to 2022)?
+-- ----------------------------------------------------------------------------
+SELECT f.year_value,
+       fmt_num(SUM(f.diabetes_patients)) AS total_patients
+FROM Diabetes_Health f
+WHERE f.record_level = 'Demographic'
+GROUP BY f.year_value
+ORDER BY f.year_value;
+
+-- ----------------------------------------------------------------------------
+-- 2) Which 10 countries had the biggest increase in patients (1990 -> 2022)?
+-- ----------------------------------------------------------------------------
+WITH p AS (
+  SELECT c.country,
+         SUM(CASE WHEN f.year_value = 1990 THEN f.diabetes_patients END) AS patients_1990,
+         SUM(CASE WHEN f.year_value = 2022 THEN f.diabetes_patients END) AS patients_2022
+  FROM Diabetes_Health f
+  JOIN Country c ON f.country_key = c.country_key
+  WHERE f.record_level = 'Demographic'
+    AND f.year_value IN (1990, 2022)
+  GROUP BY c.country
+)
+SELECT p.country,
+       fmt_num(p.patients_1990)                   AS patients_1990,
+       fmt_num(p.patients_2022)                   AS patients_2022,
+       fmt_num(p.patients_2022 - p.patients_1990) AS increase
+FROM p
+ORDER BY (p.patients_2022 - p.patients_1990) DESC
+LIMIT 10;
+
+-- ----------------------------------------------------------------------------
+-- 3) Which 10 countries had the fastest-rising diabetes rate (2012 vs 2022)?
+--    pp = percentage points (2022 rate minus 2012 rate)
+-- ----------------------------------------------------------------------------
+WITH r AS (
+  SELECT c.country,
+         MAX(CASE WHEN f.year_value = 2012 THEN f.diabetes_rate_age_standardized_pct END) AS rate_2012,
+         MAX(CASE WHEN f.year_value = 2022 THEN f.diabetes_rate_age_standardized_pct END) AS rate_2022
+  FROM Diabetes_Health f
+  JOIN Country c ON f.country_key = c.country_key
+  WHERE f.record_level = 'Country'
+    AND f.year_value IN (2012, 2022)
+  GROUP BY c.country
+)
+SELECT r.country,
+       CONCAT(ROUND(r.rate_2012, 2), '%') AS rate_2012_pct,
+       CONCAT(ROUND(r.rate_2022, 2), '%') AS rate_2022_pct,
+       CONCAT(IF(r.rate_2022 - r.rate_2012 > 0, '+', ''), ROUND(r.rate_2022 - r.rate_2012, 2), ' pp') AS change_pp
+FROM r
+WHERE r.rate_2012 IS NOT NULL AND r.rate_2022 IS NOT NULL
+ORDER BY (r.rate_2022 - r.rate_2012) DESC
+LIMIT 10;
+
+-- ----------------------------------------------------------------------------
+-- 4) Is diabetes now affecting younger people? (share of each age group with diabetes, 1990 vs 2022)
+-- ----------------------------------------------------------------------------
+SELECT g.age_group, f.year_value,
+       CONCAT(ROUND(SUM(f.diabetes_patients) / SUM(f.population) * 100, 2), '%') AS prevalence_pct
+FROM Diabetes_Health f
+JOIN Demographic_Group g ON f.demographic_group_key = g.demographic_group_key
+WHERE f.record_level = 'Demographic'
+  AND f.year_value IN (1990, 2022)
+GROUP BY g.age_group, f.year_value
+ORDER BY g.age_group, f.year_value;
+
+-- ----------------------------------------------------------------------------
+-- 5) Who is more affected: men or women? (2022, by age group)
+-- ----------------------------------------------------------------------------
+SELECT g.sex, g.age_group,
+       fmt_num(SUM(f.diabetes_patients)) AS patients,
+       CONCAT(ROUND(SUM(f.diabetes_patients) / SUM(f.population) * 100, 2), '%') AS prevalence_pct
+FROM Diabetes_Health f
+JOIN Demographic_Group g ON f.demographic_group_key = g.demographic_group_key
+WHERE f.record_level = 'Demographic'
+  AND f.year_value = 2022
+GROUP BY g.sex, g.age_group
+ORDER BY g.age_group, g.sex;
+
+-- ----------------------------------------------------------------------------
+-- 6) Who is more obese: men or women? (2022, average obesity rate)
+-- ----------------------------------------------------------------------------
+SELECT g.sex,
+       CONCAT(ROUND(AVG(f.obesity_rate_by_sex_pct), 2), '%') AS avg_obesity_pct
+FROM Diabetes_Health f
+JOIN Demographic_Group g ON f.demographic_group_key = g.demographic_group_key
+WHERE f.record_level = 'Demographic'
+  AND f.year_value = 2022
+GROUP BY g.sex;
+
+-- ----------------------------------------------------------------------------
+-- 7) EGYPT: where does Egypt rank in diabetes rate (2022)?
+--    global_rank = among all countries | region_rank = in its region | income_rank = in its income group
+--    Rank 1 = highest rate.
+-- ----------------------------------------------------------------------------
+SELECT *
+FROM (
+  SELECT c.country_code, c.country, c.region, f.income_level,
+         CONCAT(ROUND(f.diabetes_rate_age_standardized_pct, 2), '%') AS rate_pct,
+         RANK() OVER (ORDER BY f.diabetes_rate_age_standardized_pct DESC)                             AS global_rank,
+         RANK() OVER (PARTITION BY c.region ORDER BY f.diabetes_rate_age_standardized_pct DESC)       AS region_rank,
+         RANK() OVER (PARTITION BY f.income_level ORDER BY f.diabetes_rate_age_standardized_pct DESC) AS income_rank,
+         COUNT(*) OVER () AS total_countries
+  FROM Diabetes_Health f
+  JOIN Country c ON f.country_key = c.country_key
+  WHERE f.record_level = 'Country'
+    AND f.year_value = 2022
+    AND f.diabetes_rate_age_standardized_pct IS NOT NULL
+) t
+WHERE country_code = 'EGY';
+
+-- 7-ALL) ALL COUNTRIES: the same ranking for every country (2022), highest rate first
+SELECT c.country_code, c.country, c.region, f.income_level,
+       CONCAT(ROUND(f.diabetes_rate_age_standardized_pct, 2), '%') AS rate_pct,
+       RANK() OVER (ORDER BY f.diabetes_rate_age_standardized_pct DESC)                             AS global_rank,
+       RANK() OVER (PARTITION BY c.region ORDER BY f.diabetes_rate_age_standardized_pct DESC)       AS region_rank,
+       RANK() OVER (PARTITION BY f.income_level ORDER BY f.diabetes_rate_age_standardized_pct DESC) AS income_rank,
+       COUNT(*) OVER () AS total_countries
+FROM Diabetes_Health f
+JOIN Country c ON f.country_key = c.country_key
+WHERE f.record_level = 'Country'
+  AND f.year_value = 2022
+  AND f.diabetes_rate_age_standardized_pct IS NOT NULL
+ORDER BY f.diabetes_rate_age_standardized_pct DESC;
+
+-- ----------------------------------------------------------------------------
+-- 8) Insight 6 - EGYPT: the treatment gap. Of the patients, what share gets no treatment? (2022)
+--    Untreated data exists for ages 30+ only. Highest untreated share first.
+-- ----------------------------------------------------------------------------
+SELECT g.age_group, g.sex,
+       fmt_num(SUM(f.diabetes_patients))  AS patients,
+       fmt_num(SUM(f.untreated_patients)) AS untreated,
+       CONCAT(ROUND(SUM(f.untreated_patients) / SUM(f.diabetes_patients) * 100, 1), '%') AS untreated_pct
+FROM Diabetes_Health f
+JOIN Country c ON f.country_key = c.country_key
+JOIN Demographic_Group g ON f.demographic_group_key = g.demographic_group_key
+WHERE f.record_level = 'Demographic'
+  AND c.country_code = 'EGY'
+  AND f.year_value = 2022
+  AND f.untreated_status = 'Known'
+GROUP BY g.age_group, g.sex
+ORDER BY SUM(f.untreated_patients) / SUM(f.diabetes_patients) DESC;
+
+-- 8-ALL) ALL COUNTRIES: the same treatment gap for the whole world (2022)
+SELECT g.age_group, g.sex,
+       fmt_num(SUM(f.diabetes_patients))  AS patients,
+       fmt_num(SUM(f.untreated_patients)) AS untreated,
+       CONCAT(ROUND(SUM(f.untreated_patients) / SUM(f.diabetes_patients) * 100, 1), '%') AS untreated_pct
+FROM Diabetes_Health f
+JOIN Demographic_Group g ON f.demographic_group_key = g.demographic_group_key
+WHERE f.record_level = 'Demographic'
+  AND f.year_value = 2022
+  AND f.untreated_status = 'Known'
+GROUP BY g.age_group, g.sex
+ORDER BY SUM(f.untreated_patients) / SUM(f.diabetes_patients) DESC;
+
+-- ----------------------------------------------------------------------------
+-- 9) Do wealthier countries treat a larger proportion? (one row per country, 2022)
+-- ----------------------------------------------------------------------------
+WITH demo AS (
+  SELECT country_key, year_value,
+         SUM(diabetes_patients)  AS patients,
+         SUM(untreated_patients) AS untreated
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+    AND untreated_status = 'Known'
+  GROUP BY country_key, year_value
+)
+SELECT c.country, c.region,
+       CONCAT('$', fmt_num(h.gdp_per_capita_ppp)) AS gdp_per_capita_ppp_usd,
+       ROUND(h.health_coverage_index, 2) AS health_coverage_index,
+       CONCAT(ROUND(d.untreated / d.patients * 100, 1), '%') AS untreated_pct
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Country c ON d.country_key = c.country_key
+WHERE d.year_value = 2022
+  AND h.gdp_per_capita_ppp IS NOT NULL
+  AND d.patients > 0;
+
+-- 9-B) Country profile 2022: diabetes, obesity, sugar and income side by side
+SELECT c.country, c.region, h.income_level,
+       CONCAT(ROUND(h.diabetes_rate_age_standardized_pct, 2), '%') AS diabetes_rate_pct,
+       CONCAT(ROUND(h.obesity_rate_pct, 2), '%')                   AS obesity_pct,
+       CONCAT(ROUND(h.sugar_starch_pct_of_calories, 2), '%')       AS sugar_starch_pct,
+       CONCAT('$', fmt_num(h.gdp_per_capita_ppp))                    AS gdp_per_capita_ppp_usd
+FROM Diabetes_Health h
+JOIN Country c ON h.country_key = c.country_key
+WHERE h.record_level = 'Country'
+  AND h.year_value = 2022
+  AND h.diabetes_rate_age_standardized_pct IS NOT NULL
+  AND h.obesity_rate_pct IS NOT NULL;
+
+-- 9-C) Correlation between obesity and diabetes rate (2022). Between -1 and 1, no unit.
+--      Close to 1 = they rise together.
+SELECT ROUND(
+  (AVG(h.obesity_rate_pct * h.diabetes_rate_age_standardized_pct)
+   - AVG(h.obesity_rate_pct) * AVG(h.diabetes_rate_age_standardized_pct))
+  / (STDDEV_POP(h.obesity_rate_pct) * STDDEV_POP(h.diabetes_rate_age_standardized_pct)), 3) AS correlation
+FROM Diabetes_Health h
+WHERE h.record_level = 'Country'
+  AND h.year_value = 2022
+  AND h.obesity_rate_pct IS NOT NULL
+  AND h.diabetes_rate_age_standardized_pct IS NOT NULL;
+
+-- ----------------------------------------------------------------------------
+-- 10) Does dietary sugar come 10 years BEFORE the disease?
+--     Sugar/starch share of calories in year X next to the diabetes rate in year X+10.
+-- ----------------------------------------------------------------------------
+SELECT c.country,
+       h.year_value                                                 AS food_year,
+       CONCAT(ROUND(h.sugar_starch_pct_of_calories, 2), '%')        AS sugar_starch_pct,
+       CONCAT(ROUND(h2.diabetes_rate_age_standardized_pct, 2), '%') AS diabetes_rate_plus_10y_pct
+FROM Diabetes_Health h
+JOIN Diabetes_Health h2
+  ON h2.country_key  = h.country_key
+ AND h2.year_value   = h.year_value + 10
+ AND h2.record_level = 'Country'
+JOIN Country c ON h.country_key = c.country_key
+WHERE h.record_level = 'Country'
+  AND h.sugar_starch_pct_of_calories IS NOT NULL
+  AND h2.diabetes_rate_age_standardized_pct IS NOT NULL;
+
+-- ----------------------------------------------------------------------------
+-- 11) Healthcare spending per patient versus deaths per 1,000 patients (each country, each year)
+-- ----------------------------------------------------------------------------
+WITH demo AS (
+  SELECT country_key, year_value, SUM(diabetes_patients) AS patients
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+  GROUP BY country_key, year_value
+)
+SELECT c.country,
+       c.region,
+       d.year_value,
+       hc.healthcare_level,
+       fmt_num(d.patients)                                                AS patients,
+       fmt_num(h.country_diabetes_deaths)                                 AS diabetes_deaths,
+       CONCAT('$', fmt_num(h.health_spending_total_usd))                  AS health_spending_usd,
+       CONCAT('$', FORMAT(h.health_spending_total_usd / d.patients, 2)) AS spending_per_patient_usd,
+       -- per 1000 patients so countries of different sizes are comparable
+       CONCAT(ROUND(h.country_diabetes_deaths / d.patients * 1000, 2), ' per 1,000') AS deaths_per_1000_patients
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Country c ON d.country_key = c.country_key
+LEFT JOIN Healthcare hc ON h.healthcare_key = hc.healthcare_key
+WHERE h.deaths_status = 'Known'              -- deaths exist 2000-2021 only
+  AND h.health_spending_status = 'Known'
+  AND d.patients > 0
+ORDER BY d.year_value, c.country;
+
+-- ----------------------------------------------------------------------------
+-- 12) Do countries with a higher level of care have lower mortality? (2021, averages per care level)
+-- ----------------------------------------------------------------------------
+WITH demo AS (
+  SELECT country_key, year_value, SUM(diabetes_patients) AS patients
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+  GROUP BY country_key, year_value
+)
+SELECT hc.healthcare_level,
+       COUNT(*) AS countries,
+       CONCAT('$', FORMAT(AVG(h.health_spending_total_usd / d.patients), 2))              AS avg_spending_per_patient_usd,
+       CONCAT(ROUND(AVG(h.country_diabetes_deaths / d.patients * 1000), 2), ' per 1,000') AS avg_deaths_per_1000_patients
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Healthcare hc ON h.healthcare_key = hc.healthcare_key
+WHERE d.year_value = 2021
+  AND h.deaths_status = 'Known'
+  AND h.health_spending_status = 'Known'
+  AND d.patients > 0
+GROUP BY hc.healthcare_level;
+
+-- ----------------------------------------------------------------------------
+-- 12) EGYPT: how much does Egypt rely on insulin imports, compared with its number of patients?
+--     net imports = imports - exports. Positive = the country depends on imports.
+-- ----------------------------------------------------------------------------
+WITH demo AS (
+  SELECT country_key, year_value, SUM(diabetes_patients) AS patients
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+  GROUP BY country_key, year_value
+)
+SELECT c.country,
+       c.region,
+       d.year_value,
+       fmt_num(d.patients)                                   AS patients,
+       CONCAT('$', fmt_num(h.insulin_imports_usd))           AS insulin_imports_usd,
+       CONCAT('$', fmt_num(h.insulin_exports_usd))           AS insulin_exports_usd,
+       CONCAT(IF(h.insulin_imports_usd < h.insulin_exports_usd, '-', ''), '$',
+              fmt_num(ABS(h.insulin_imports_usd - h.insulin_exports_usd))) AS net_imports_usd,
+       CONCAT('$', FORMAT(h.insulin_imports_usd / d.patients, 2)) AS imports_per_patient_usd,
+       CONCAT('$', FORMAT(h.insulin_exports_usd / d.patients, 2)) AS exports_per_patient_usd
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Country c ON d.country_key = c.country_key
+WHERE c.country_code = 'EGY'
+  AND h.insulin_status = 'Known'     -- insulin data starts in 1995
+  AND d.patients > 0
+ORDER BY d.year_value;
+
+-- 12-ALL) ALL COUNTRIES: the same insulin picture for every country and year
+WITH demo AS (
+  SELECT country_key, year_value, SUM(diabetes_patients) AS patients
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+  GROUP BY country_key, year_value
+)
+SELECT c.country,
+       c.region,
+       d.year_value,
+       fmt_num(d.patients)                                   AS patients,
+       CONCAT('$', fmt_num(h.insulin_imports_usd))           AS insulin_imports_usd,
+       CONCAT('$', fmt_num(h.insulin_exports_usd))           AS insulin_exports_usd,
+       CONCAT(IF(h.insulin_imports_usd < h.insulin_exports_usd, '-', ''), '$',
+              fmt_num(ABS(h.insulin_imports_usd - h.insulin_exports_usd))) AS net_imports_usd,
+       CONCAT('$', FORMAT(h.insulin_imports_usd / d.patients, 2)) AS imports_per_patient_usd,
+       CONCAT('$', FORMAT(h.insulin_exports_usd / d.patients, 2)) AS exports_per_patient_usd
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Country c ON d.country_key = c.country_key
+WHERE h.insulin_status = 'Known'
+  AND d.patients > 0
+ORDER BY d.year_value, c.country;
+
+-- ----------------------------------------------------------------------------
+-- 13) Which countries depend most on insulin imports? Ranking by net imports per patient (2022)
+--     Rank 1 = most dependent.
+-- ----------------------------------------------------------------------------
+WITH demo AS (
+  SELECT country_key, year_value, SUM(diabetes_patients) AS patients
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+  GROUP BY country_key, year_value
+)
+SELECT c.country,
+       c.region,
+       fmt_num(d.patients) AS patients,
+       CONCAT(IF(h.insulin_imports_usd < h.insulin_exports_usd, '-', ''), '$',
+              FORMAT(ABS(h.insulin_imports_usd - h.insulin_exports_usd) / d.patients, 2)) AS net_imports_per_patient_usd,
+       RANK() OVER (ORDER BY (h.insulin_imports_usd - h.insulin_exports_usd) / d.patients DESC) AS dependency_rank
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Country c ON d.country_key = c.country_key
+WHERE d.year_value = 2022
+  AND h.insulin_status = 'Known'
+  AND d.patients > 0
+ORDER BY dependency_rank;
+
+-- ----------------------------------------------------------------------------
+-- 13) Insight 13: Diabetes deaths per 100,000 population, by country and year (2000-2021)
+-- ----------------------------------------------------------------------------
+SELECT c.country,
+       c.region,
+       h.year_value,
+       fmt_num(h.country_diabetes_deaths) AS diabetes_deaths,
+       fmt_num(h.country_population)      AS population,
+       CONCAT(ROUND(h.country_diabetes_deaths / h.country_population * 100000, 2), ' per 100K') AS deaths_per_100k
+FROM Diabetes_Health h
+JOIN Country c ON h.country_key = c.country_key
+WHERE h.record_level = 'Country'
+  AND h.deaths_status = 'Known'
+  AND h.country_population > 0
+  AND h.year_value BETWEEN 2000 AND 2021
+ORDER BY c.country, h.year_value;
+
+-- ----------------------------------------------------------------------------
+-- 13-B) Deaths per 100,000 population by region (2000-2021)
+--       We SUM deaths and population first, THEN divide. If we averaged each country's rate,
+--       a tiny country would weigh the same as a huge one.
+-- ----------------------------------------------------------------------------
+SELECT c.region,
+       h.year_value,
+       fmt_num(SUM(h.country_diabetes_deaths)) AS diabetes_deaths,
+       fmt_num(SUM(h.country_population))      AS population,
+       CONCAT(ROUND(SUM(h.country_diabetes_deaths) / SUM(h.country_population) * 100000, 2), ' per 100K') AS deaths_per_100k
+FROM Diabetes_Health h
+JOIN Country c ON h.country_key = c.country_key
+WHERE h.record_level = 'Country'
+  AND h.deaths_status = 'Known'
+  AND h.country_population > 0
+  AND h.year_value BETWEEN 2000 AND 2021
+GROUP BY c.region, h.year_value
+ORDER BY c.region, h.year_value;
+
+-- ----------------------------------------------------------------------------
+-- 15) EGYPT: where should Egypt begin its prevention efforts? Key indicators in one row (2022)
+--     untreated_pct_30plus = share of untreated patients among patients aged 30+
+--     (untreated data exists for ages 30+ only, so the denominator uses those rows only)
+-- ----------------------------------------------------------------------------
+WITH demo AS (
+  SELECT country_key,
+         year_value,
+         SUM(diabetes_patients) AS patients,
+         SUM(CASE WHEN untreated_status = 'Known' THEN diabetes_patients END)  AS patients_30plus,
+         SUM(CASE WHEN untreated_status = 'Known' THEN untreated_patients END) AS untreated_30plus
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+  GROUP BY country_key, year_value
+)
+SELECT c.country,
+       c.region,
+       h.income_level,
+       fmt_num(d.patients)                                                   AS patients,
+       CONCAT(ROUND(h.diabetes_rate_age_standardized_pct, 2), '%')         AS diabetes_rate_pct,
+       CONCAT(ROUND(d.untreated_30plus / d.patients_30plus * 100, 1), '%') AS untreated_pct_30plus,
+       CONCAT(ROUND(h.obesity_rate_pct, 2), '%')                           AS obesity_pct,
+       CONCAT(ROUND(h.sugar_starch_pct_of_calories, 2), '%')               AS sugar_starch_pct,
+       ROUND(h.health_coverage_index, 2)                                   AS health_coverage_index,
+       CONCAT('$', FORMAT(h.insulin_imports_usd / d.patients, 2))          AS insulin_imports_per_patient_usd
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Country c ON d.country_key = c.country_key
+WHERE c.country_code = 'EGY'
+  AND d.year_value = 2022
+  AND d.patients > 0;
+
+-- 15-ALL) ALL COUNTRIES: the same indicators for every country (2022), highest diabetes rate first
+WITH demo AS (
+  SELECT country_key,
+         year_value,
+         SUM(diabetes_patients) AS patients,
+         SUM(CASE WHEN untreated_status = 'Known' THEN diabetes_patients END)  AS patients_30plus,
+         SUM(CASE WHEN untreated_status = 'Known' THEN untreated_patients END) AS untreated_30plus
+  FROM Diabetes_Health
+  WHERE record_level = 'Demographic'
+  GROUP BY country_key, year_value
+)
+SELECT c.country,
+       c.region,
+       h.income_level,
+       fmt_num(d.patients)                                                   AS patients,
+       CONCAT(ROUND(h.diabetes_rate_age_standardized_pct, 2), '%')         AS diabetes_rate_pct,
+       CONCAT(ROUND(d.untreated_30plus / d.patients_30plus * 100, 1), '%') AS untreated_pct_30plus,
+       CONCAT(ROUND(h.obesity_rate_pct, 2), '%')                           AS obesity_pct,
+       CONCAT(ROUND(h.sugar_starch_pct_of_calories, 2), '%')               AS sugar_starch_pct,
+       ROUND(h.health_coverage_index, 2)                                   AS health_coverage_index,
+       CONCAT('$', FORMAT(h.insulin_imports_usd / d.patients, 2))          AS insulin_imports_per_patient_usd
+FROM demo d
+JOIN Diabetes_Health h
+  ON h.country_key = d.country_key
+ AND h.year_value  = d.year_value
+ AND h.record_level = 'Country'
+JOIN Country c ON d.country_key = c.country_key
+WHERE d.year_value = 2022
+  AND d.patients > 0
+ORDER BY h.diabetes_rate_age_standardized_pct DESC;
+
+-- ----------------------------------------------------------------------------
+-- 15-B) EGYPT: which age x sex groups hold the biggest share of Egypt's untreated patients? (2022)
+--       First groups to target in a prevention / screening program.
+--       share_of_country_untreated_pct = this group's share of all untreated patients in the country
+-- ----------------------------------------------------------------------------
+SELECT c.country,
+       g.age_group,
+       CAST(REPLACE(SUBSTRING_INDEX(g.age_group, '-', 1), '+', '') AS UNSIGNED) AS age_order,
+       g.sex,
+       fmt_num(SUM(f.diabetes_patients))  AS patients,
+       fmt_num(SUM(f.untreated_patients)) AS untreated,
+       CONCAT(ROUND(SUM(f.untreated_patients) / SUM(f.diabetes_patients) * 100, 1), '%') AS untreated_pct,
+       CONCAT(ROUND(SUM(f.untreated_patients)
+             / SUM(SUM(f.untreated_patients)) OVER (PARTITION BY c.country) * 100, 1), '%') AS share_of_country_untreated_pct
+FROM Diabetes_Health f
+JOIN Country c ON f.country_key = c.country_key
+JOIN Demographic_Group g ON f.demographic_group_key = g.demographic_group_key
+WHERE f.record_level = 'Demographic'
+  AND c.country_code = 'EGY'
+  AND f.year_value = 2022
+  AND f.untreated_status = 'Known'          -- ages 30+ only
+GROUP BY c.country, g.age_group, age_order, g.sex
+HAVING SUM(f.diabetes_patients) > 0
+ORDER BY SUM(f.untreated_patients) DESC;
+
+-- 15-B-ALL) ALL COUNTRIES: the same breakdown for every country (2022)
+SELECT c.country,
+       g.age_group,
+       CAST(REPLACE(SUBSTRING_INDEX(g.age_group, '-', 1), '+', '') AS UNSIGNED) AS age_order,
+       g.sex,
+       fmt_num(SUM(f.diabetes_patients))  AS patients,
+       fmt_num(SUM(f.untreated_patients)) AS untreated,
+       CONCAT(ROUND(SUM(f.untreated_patients) / SUM(f.diabetes_patients) * 100, 1), '%') AS untreated_pct,
+       CONCAT(ROUND(SUM(f.untreated_patients)
+             / SUM(SUM(f.untreated_patients)) OVER (PARTITION BY c.country) * 100, 1), '%') AS share_of_country_untreated_pct
+FROM Diabetes_Health f
+JOIN Country c ON f.country_key = c.country_key
+JOIN Demographic_Group g ON f.demographic_group_key = g.demographic_group_key
+WHERE f.record_level = 'Demographic'
+  AND f.year_value = 2022
+  AND f.untreated_status = 'Known'          -- ages 30+ only
+GROUP BY c.country, g.age_group, age_order, g.sex
+HAVING SUM(f.diabetes_patients) > 0
+ORDER BY c.country, SUM(f.untreated_patients) DESC;
